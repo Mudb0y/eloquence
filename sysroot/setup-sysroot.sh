@@ -1,13 +1,17 @@
 #!/bin/bash
-# Downloads minimal ARM sysroot (libc6, libstdc++6, libgcc-s1) from Debian bookworm
-# and overlays Eloquence libraries with necessary ELF patches.
+# Downloads the LevelStar Icon PDA image to extract Eloquence libraries,
+# downloads a minimal ARM sysroot (libc6, libstdc++6, libgcc-s1) from Debian
+# bookworm, and applies necessary ELF patches.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BRIDGE_DIR="$(dirname "$SCRIPT_DIR")"
-PROJECT_DIR="$(dirname "$BRIDGE_DIR")"
 SYSROOT="$SCRIPT_DIR/armhf"
-ROOTFS="$PROJECT_DIR/rootfs"
+CACHE_DIR="$SCRIPT_DIR/.debs"
+
+# LevelStar Icon PDA firmware image (contains Eloquence V6.1 ARM libraries)
+LSI_URL="http://tech.aph.org/2.2.53.lsi"
+LSI_FILE="$CACHE_DIR/2.2.53.lsi"
 
 # Use bookworm (glibc 2.36). Needed because:
 # - The cross-compiler's CRT startup requires GLIBC_2.34 (__libc_start_main)
@@ -17,25 +21,69 @@ ROOTFS="$PROJECT_DIR/rootfs"
 MIRROR="http://deb.debian.org/debian"
 DIST="bookworm"
 ARCH="armhf"
-DEBS_DIR="$SCRIPT_DIR/.debs"
 
-mkdir -p "$DEBS_DIR" "$SYSROOT"
+mkdir -p "$CACHE_DIR" "$SYSROOT"
 
-# Packages to download
+# --- Step 1: Extract Eloquence libraries from the PDA image ---
+
+echo "=== Extracting Eloquence libraries from PDA image ==="
+
+ROOTFS_DIR="$CACHE_DIR/rootfs"
+
+if [ -f "$ROOTFS_DIR/usr/lib/libeci.so" ] && \
+   [ -f "$ROOTFS_DIR/usr/lib/enu.so" ] && \
+   [ -f "$ROOTFS_DIR/etc/eci.ini" ]; then
+    echo "  Using cached extraction in $ROOTFS_DIR"
+else
+    # Download firmware image
+    if [ ! -f "$LSI_FILE" ]; then
+        echo "  Downloading PDA image (~56MB)..."
+        curl -L -o "$LSI_FILE" "$LSI_URL"
+    else
+        echo "  Using cached $LSI_FILE"
+    fi
+
+    # Extract JFFS2 root filesystem from the zip
+    echo "  Extracting root.bin from zip..."
+    unzip -o -d "$CACHE_DIR" "$LSI_FILE" root.bin
+
+    # Extract files from JFFS2 image using jefferson
+    if ! command -v jefferson &>/dev/null; then
+        echo "ERROR: jefferson not found. Install with: pip install jefferson" >&2
+        exit 1
+    fi
+    echo "  Extracting JFFS2 filesystem (this takes a moment)..."
+    jefferson -f -d "$ROOTFS_DIR" "$CACHE_DIR/root.bin"
+
+    # Clean up the large intermediate file
+    rm -f "$CACHE_DIR/root.bin"
+
+    # Verify extraction
+    for f in usr/lib/libeci.so usr/lib/enu.so etc/eci.ini; do
+        if [ ! -f "$ROOTFS_DIR/$f" ]; then
+            echo "ERROR: $f not found in extracted rootfs" >&2
+            exit 1
+        fi
+    done
+    echo "  Eloquence files extracted successfully"
+fi
+
+# --- Step 2: Download armhf packages from Debian ---
+
 PACKAGES=(
     "libc6"
     "libstdc++6"
     "libgcc-s1"
 )
 
+echo ""
 echo "=== Downloading armhf packages from Debian $DIST ==="
 
-# Download and cache the Packages index
-PACKAGES_FILE="$DEBS_DIR/Packages-$DIST"
+PACKAGES_FILE="$CACHE_DIR/Packages-$DIST"
 if [ ! -f "$PACKAGES_FILE" ]; then
     echo "  Downloading package index..."
-    curl -sL "$MIRROR/dists/$DIST/main/binary-$ARCH/Packages.xz" -o "$DEBS_DIR/Packages-$DIST.xz"
-    xz -d -k "$DEBS_DIR/Packages-$DIST.xz"
+    curl -sL "$MIRROR/dists/$DIST/main/binary-$ARCH/Packages.xz" -o "$CACHE_DIR/Packages-$DIST.xz"
+    xz -d -k "$CACHE_DIR/Packages-$DIST.xz"
 fi
 
 for pkg in "${PACKAGES[@]}"; do
@@ -48,7 +96,7 @@ for pkg in "${PACKAGES[@]}"; do
         echo "    ERROR: could not find $pkg in $DIST/$ARCH" >&2
         exit 1
     fi
-    DEB_FILE="$DEBS_DIR/$(basename "$PKG_URL")"
+    DEB_FILE="$CACHE_DIR/$(basename "$PKG_URL")"
     if [ ! -f "$DEB_FILE" ]; then
         curl -sL -o "$DEB_FILE" "$MIRROR/$PKG_URL"
     fi
@@ -56,12 +104,15 @@ for pkg in "${PACKAGES[@]}"; do
     dpkg-deb -x "$DEB_FILE" "$SYSROOT/"
 done
 
+# --- Step 3: Overlay Eloquence libraries and apply patches ---
+
 echo ""
 echo "=== Overlaying Eloquence libraries ==="
 
-# Copy ECI libraries
-cp -v "$ROOTFS/usr/lib/libeci.so" "$SYSROOT/usr/lib/"
-cp -v "$ROOTFS/usr/lib/enu.so" "$SYSROOT/usr/lib/"
+cp -v "$ROOTFS_DIR/usr/lib/libeci.so" "$SYSROOT/usr/lib/"
+cp -v "$ROOTFS_DIR/usr/lib/enu.so" "$SYSROOT/usr/lib/"
+mkdir -p "$SYSROOT/etc"
+cp -v "$ROOTFS_DIR/etc/eci.ini" "$SYSROOT/etc/"
 
 # Patch ELF OS/ABI: old ARM toolchain sets 0x61 (ARM), modern glibc rejects it.
 # Change byte 7 to 0x00 (SYSV) so ld.so will load them.
@@ -86,14 +137,11 @@ arm-linux-gnueabihf-gcc --sysroot="$SYSROOT" -shared -fPIC \
     -Wl,--version-script="$BRIDGE_DIR/arm/sjlj_compat.map" \
     -Wl,-soname,libsjlj_compat.so
 
-# Copy ECI config
-mkdir -p "$SYSROOT/etc"
-cp -v "$ROOTFS/etc/eci.ini" "$SYSROOT/etc/"
+# --- Step 4: Verify ---
 
 echo ""
 echo "=== Verifying sysroot ==="
 
-# Find the dynamic linker
 LDSO=$(find "$SYSROOT" -name "ld-linux-armhf.so*" | head -1)
 if [ -z "$LDSO" ]; then
     echo "ERROR: ld-linux-armhf.so not found in sysroot" >&2
@@ -101,7 +149,6 @@ if [ -z "$LDSO" ]; then
 fi
 echo "Dynamic linker: $LDSO"
 
-# Verify libeci.so dependencies
 echo "Checking libeci.so dependencies..."
 if command -v qemu-arm &>/dev/null; then
     qemu-arm -L "$SYSROOT" "$LDSO" --list "$SYSROOT/usr/lib/libeci.so" || {

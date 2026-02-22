@@ -16,21 +16,18 @@ The bridge daemon runs under `qemu-arm -L <sysroot>`, where the sysroot is a min
 
 ## Prerequisites
 
-You need three packages:
+You need these packages:
 
 ```
 sudo apt install gcc-arm-linux-gnueabihf qemu-user python3
+pip install jefferson
 ```
 
-The Eloquence rootfs must exist at `../rootfs/` relative to this directory, containing at minimum:
-
-- `usr/lib/libeci.so` -- the ECI control library
-- `usr/lib/enu.so` -- the English synthesis engine
-- `etc/eci.ini` -- the ECI configuration file
+`jefferson` is a Python tool for extracting JFFS2 filesystems. The sysroot setup script uses it to extract the Eloquence libraries from the PDA firmware image.
 
 ## Building
 
-First, set up the ARM sysroot. This downloads three armhf `.deb` packages from Debian bookworm, extracts them, copies the Eloquence libraries in, and applies the necessary ELF patches:
+First, set up the ARM sysroot. This downloads the LevelStar Icon PDA firmware image from `tech.aph.org`, extracts the Eloquence libraries from its JFFS2 root filesystem, downloads three armhf `.deb` packages from Debian bookworm, and applies the necessary ELF patches:
 
 ```
 make sysroot
