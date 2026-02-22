@@ -1,0 +1,9 @@
+CXXABI_1.3 {
+    global: __gxx_personality_sj0;
+};
+GCC_3.0 {
+    global:
+        _Unwind_SjLj_Register;
+        _Unwind_SjLj_Unregister;
+        _Unwind_SjLj_Resume;
+};

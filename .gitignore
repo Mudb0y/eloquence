@@ -1,0 +1,6 @@
+build/
+sysroot/armhf/
+sysroot/.debs/
+*.o
+*.so
+*.log
