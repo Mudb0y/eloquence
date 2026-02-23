@@ -26,7 +26,7 @@ static int cfg_pitch         = 65;
 static int cfg_speed         = 50;
 static int cfg_volume        = 90;
 static int cfg_dictionary    = 0;
-static int cfg_textmode      = 1;   /* 0=phrase prediction on, 1=off */
+static int cfg_synthmode     = 1;   /* 0=sentence (phrase prediction on), 1=manual (off) */
 static int cfg_debug         = 0;
 
 /* ------------------------------------------------------------------ */
@@ -140,8 +140,8 @@ static void parse_config_line(const char *line)
         cfg_volume = clamp(atoi(val), 0, 100);
     else if (!strcmp(key, "EloquenceDictionary"))
         cfg_dictionary = atoi(val);
-    else if (!strcmp(key, "EloquenceTextMode"))
-        cfg_textmode = atoi(val);
+    else if (!strcmp(key, "EloquenceSynthMode"))
+        cfg_synthmode = atoi(val);
     else if (!strcmp(key, "Debug"))
         cfg_debug = atoi(val);
 }
@@ -179,7 +179,7 @@ int module_init(char **msg)
     /* Apply config defaults */
     eciSetParam(g_eci, eciSampleRate, cfg_sample_rate);
     eciSetParam(g_eci, eciDictionary, cfg_dictionary);
-    eciSetParam(g_eci, eciTextMode, cfg_textmode);
+    eciSetParam(g_eci, eciSynthMode, cfg_synthmode);
     g_sample_rate_hz = sample_rate_to_hz(cfg_sample_rate);
 
     g_current_voice = cfg_default_voice;
