@@ -1,0 +1,3 @@
+# eci-bridge is an ARM binary that runs under qemu-arm user-mode emulation
+eloquence: statically-linked-binary [usr/share/eloquence/eci-bridge]
+eloquence: unstripped-binary-or-object [usr/share/eloquence/eci-bridge]
