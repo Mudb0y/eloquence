@@ -4,3 +4,14 @@ sysroot/.debs/
 *.o
 *.so
 *.log
+
+# Debian packaging build artifacts
+pkg/debian/.debhelper/
+pkg/debian/eloquence/
+pkg/debian/files
+pkg/debian/*.substvars
+pkg/debian/debhelper-build-stamp
+pkg/debian/*.debhelper.log
+
+# Downloaded source packages
+speech-dispatcher_*

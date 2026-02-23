@@ -96,7 +96,7 @@ $(BUILDDIR)/sysroot:
 sysroot:
 	bash sysroot/setup-sysroot.sh
 
-# Install target (used by dpkg-buildpackage via debian/rules)
+# Install target (used by dpkg-buildpackage via pkg/debian/rules)
 install:
 	install -Dm755 $(BRIDGE)    $(DESTDIR)$(DATADIR)/eci-bridge
 	install -Dm755 $(SHIM_LIB)  $(DESTDIR)$(LIBDIR)/libeci.so
