@@ -33,21 +33,42 @@ const char *shim_get_socket_path(void)
     return g_socket_path;
 }
 
-/* Find the bridge directory: look relative to this .so file */
+/* Find the bridge directory: where eci-bridge + sysroot live.
+ * 3-tier resolution:
+ *   1. ECI_BRIDGE_DIR env var (explicit override)
+ *   2. dladdr — directory of this .so (works for dev/build dir)
+ *   3. /usr/share/eloquence (system install fallback)
+ */
 static const char *get_bridge_dir(void)
 {
     if (g_bridge_dir[0]) return g_bridge_dir;
 
-    /* Try dladdr to find where libeci.so (the shim) is loaded from */
+    /* Tier 1: explicit env override */
+    const char *env = getenv("ECI_BRIDGE_DIR");
+    if (env && env[0]) {
+        snprintf(g_bridge_dir, sizeof(g_bridge_dir), "%s", env);
+        return g_bridge_dir;
+    }
+
+    /* Tier 2: dladdr — look for eci-bridge next to the .so */
     Dl_info info;
     if (dladdr((void *)shim_get_socket_path, &info) && info.dli_fname) {
-        snprintf(g_bridge_dir, sizeof(g_bridge_dir), "%s", info.dli_fname);
-        char *slash = strrchr(g_bridge_dir, '/');
+        char dldir[256];
+        snprintf(dldir, sizeof(dldir), "%s", info.dli_fname);
+        char *slash = strrchr(dldir, '/');
         if (slash) *slash = '\0';
-        else strcpy(g_bridge_dir, ".");
-    } else {
-        strcpy(g_bridge_dir, ".");
+        else strcpy(dldir, ".");
+
+        char probe[512];
+        snprintf(probe, sizeof(probe), "%s/eci-bridge", dldir);
+        if (access(probe, X_OK) == 0) {
+            snprintf(g_bridge_dir, sizeof(g_bridge_dir), "%s", dldir);
+            return g_bridge_dir;
+        }
     }
+
+    /* Tier 3: system install path */
+    strcpy(g_bridge_dir, "/usr/share/eloquence");
     return g_bridge_dir;
 }
 
@@ -116,9 +137,17 @@ int shim_launch_bridge(void)
     if (pid == 0) {
         /* Child: daemonize */
         setsid();
-        /* Redirect stderr to a log file next to the bridge */
+        /* Redirect stderr to a log file.
+         * Try next to bridge first; if not writable, use XDG_RUNTIME_DIR or /tmp */
         char logpath[512];
         snprintf(logpath, sizeof(logpath), "%s/eci-bridge.log", dir);
+        if (access(dir, W_OK) != 0) {
+            const char *rtdir = getenv("XDG_RUNTIME_DIR");
+            if (rtdir)
+                snprintf(logpath, sizeof(logpath), "%s/eci-bridge.log", rtdir);
+            else
+                snprintf(logpath, sizeof(logpath), "/tmp/eci-bridge.log");
+        }
         freopen(logpath, "a", stderr);
         freopen("/dev/null", "r", stdin);
         freopen("/dev/null", "w", stdout);

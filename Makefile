@@ -1,5 +1,6 @@
 # Eloquence V6.1 ARM-to-Any-Arch Bridge
-# Builds: eci-bridge (ARM), libeci.so (native shim), eloquence (native CLI)
+# Builds: eci-bridge (ARM), libeci.so (native shim), eloquence (native CLI),
+#         sd_eloquence (speech-dispatcher module)
 
 # Cross compiler for ARM bridge
 ARM_CC      = arm-linux-gnueabihf-gcc
@@ -19,6 +20,7 @@ PROTO_SRC   = proto/rpc_io.c proto/rpc_msg.c
 ARM_SRC     = arm/bridge_main.c arm/bridge_dispatch.c arm/bridge_handle.c arm/bridge_callback.c
 SHIM_SRC    = host/shim_libeci.c host/shim_connection.c host/shim_callback.c host/shim_launch.c
 CLI_SRC     = cli/eloquence.c
+SPD_SRC     = spd/sd_eloquence.c
 
 # Object files
 PROTO_ARM_OBJ = $(patsubst proto/%.c,$(BUILDDIR)/arm/proto_%.o,$(PROTO_SRC))
@@ -31,8 +33,18 @@ CLI_OBJ        = $(patsubst cli/%.c,$(BUILDDIR)/cli/%.o,$(CLI_SRC))
 BRIDGE      = $(BUILDDIR)/eci-bridge
 SHIM_LIB    = $(BUILDDIR)/libeci.so
 CLI_BIN     = $(BUILDDIR)/eloquence
+SPD_BIN     = $(BUILDDIR)/sd_eloquence
 
-.PHONY: all clean sysroot
+# Install paths
+PREFIX     = /usr
+LIBDIR     = $(PREFIX)/lib/x86_64-linux-gnu
+DATADIR    = $(PREFIX)/share/eloquence
+BINDIR     = $(PREFIX)/bin
+MANDIR     = $(PREFIX)/share/man/man1
+SPDMODDIR  = $(PREFIX)/lib/speech-dispatcher-modules
+SPDCONFDIR = /etc/speech-dispatcher/modules
+
+.PHONY: all clean sysroot sd_eloquence install
 
 all: $(BRIDGE) $(SHIM_LIB) $(CLI_BIN) $(BUILDDIR)/sysroot
 
@@ -67,6 +79,15 @@ $(BUILDDIR)/cli/%.o: cli/%.c | $(BUILDDIR)/cli
 $(CLI_BIN): $(CLI_OBJ) $(SHIM_LIB)
 	$(CC) -o $@ $(CLI_OBJ) -L$(BUILDDIR) -leci -Wl,-rpath,'$$ORIGIN' $(LDFLAGS)
 
+# Speech-dispatcher module
+sd_eloquence: $(SPD_BIN)
+
+$(SPD_BIN): $(SPD_SRC) $(SHIM_LIB)
+	$(CC) $(CFLAGS) -Ispd $(shell pkg-config --cflags speech-dispatcher) \
+		-o $@ $< -L$(BUILDDIR) -leci -lspeechd_module \
+		$(shell pkg-config --libs speech-dispatcher) \
+		-Wl,-rpath,'$$ORIGIN'
+
 # Symlink sysroot into build dir so shim can find it relative to libeci.so
 $(BUILDDIR)/sysroot:
 	ln -sf ../sysroot $(BUILDDIR)/sysroot
@@ -74,6 +95,23 @@ $(BUILDDIR)/sysroot:
 # Sysroot setup
 sysroot:
 	bash sysroot/setup-sysroot.sh
+
+# Install target (used by dpkg-buildpackage via debian/rules)
+install:
+	install -Dm755 $(BRIDGE)    $(DESTDIR)$(DATADIR)/eci-bridge
+	install -Dm755 $(SHIM_LIB)  $(DESTDIR)$(LIBDIR)/libeci.so
+	install -Dm755 $(CLI_BIN)   $(DESTDIR)$(BINDIR)/eloquence
+	install -Dm755 scripts/eloquence-setup $(DESTDIR)$(BINDIR)/eloquence-setup
+	install -Dm644 man/eloquence.1 $(DESTDIR)$(MANDIR)/eloquence.1
+	# speech-dispatcher module (only if built)
+	test ! -f $(SPD_BIN) || \
+		install -Dm755 $(SPD_BIN) $(DESTDIR)$(SPDMODDIR)/sd_eloquence
+	test ! -f $(SPD_BIN) || \
+		install -Dm644 spd/eloquence.conf $(DESTDIR)$(SPDCONFDIR)/eloquence.conf
+	# Support files needed by eloquence-setup
+	install -Dm644 sysroot/patch-glibc-versions.py $(DESTDIR)$(DATADIR)/patch-glibc-versions.py
+	install -Dm644 arm/sjlj_compat.c  $(DESTDIR)$(DATADIR)/arm/sjlj_compat.c
+	install -Dm644 arm/sjlj_compat.map $(DESTDIR)$(DATADIR)/arm/sjlj_compat.map
 
 clean:
 	rm -rf $(BUILDDIR)

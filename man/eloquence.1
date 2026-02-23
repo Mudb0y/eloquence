@@ -1,0 +1,107 @@
+.TH ELOQUENCE 1 "February 2026" "eloquence 6.1.0" "User Commands"
+.SH NAME
+eloquence \- Eloquence V6.1 text\-to\-speech synthesizer
+.SH SYNOPSIS
+.B eloquence
+[\fIOPTIONS\fR]
+.SH DESCRIPTION
+.B eloquence
+synthesizes speech from text using the ETI Eloquence V6.1 engine
+running under QEMU ARM user\-mode emulation.
+Text can be provided via command\-line argument, file, or standard input.
+Output is written as a WAV file.
+.SH OPTIONS
+.TP
+.BR \-t ", " \-\-text " " \fITEXT\fR
+Text to synthesize.
+.TP
+.BR \-f ", " \-\-file " " \fIFILE\fR
+Read text from FILE.
+.TP
+.BR \-o ", " \-\-output " " \fIFILE\fR
+Output WAV file (default: output.wav).
+.TP
+.BR \-v ", " \-\-voice " " \fINUM\fR
+Voice preset 0\-7 (default: 0).
+The voices are: 0=Reed, 1=Shelley, 2=Bobby, 3=Rocko,
+4=Glen, 5=Sandy, 6=Grandma, 7=Grandpa.
+.TP
+.BR \-s ", " \-\-speed " " \fINUM\fR
+Speech speed 0\-250 (default: 50).
+.TP
+.BR \-p ", " \-\-pitch " " \fINUM\fR
+Pitch baseline 0\-100 (default: 65).
+.TP
+.BR \-\-rate " " \fINUM\fR
+Sample rate index: 0=8kHz, 1=11kHz, 2=22kHz (default: 1).
+.TP
+.BR \-\-list\-voices
+Show available voices with their default parameters.
+.TP
+.BR \-\-version
+Show ECI library version string.
+.TP
+.BR \-h ", " \-\-help
+Show help message.
+.SH SETUP
+After installing the package, run
+.B sudo eloquence\-setup
+to download the proprietary Eloquence ARM libraries and configure the
+ARM sysroot.  This requires an internet connection and approximately
+100MB of disk space.
+.PP
+To remove the downloaded data:
+.B sudo eloquence\-setup \-\-uninstall
+.SH ENVIRONMENT
+.TP
+.B ECI_BRIDGE_DIR
+Override the directory containing the eci\-bridge binary and sysroot.
+Useful for development or non\-standard installations.
+.TP
+.B ECI_BRIDGE_SOCKET
+Override the Unix domain socket path used for bridge communication.
+.SH FILES
+.TP
+.I /usr/share/eloquence/eci\-bridge
+ARM bridge daemon binary (runs under qemu\-arm).
+.TP
+.I /usr/share/eloquence/sysroot/
+ARM sysroot with Eloquence libraries (created by eloquence\-setup).
+.TP
+.I /usr/lib/x86_64\-linux\-gnu/libeci.so
+Native shim library implementing the ECI API.
+.TP
+.I /usr/lib/speech\-dispatcher\-modules/sd_eloquence
+Speech\-dispatcher output module.
+.TP
+.I /etc/speech\-dispatcher/modules/eloquence.conf
+Speech\-dispatcher module configuration.
+.SH EXAMPLES
+Synthesize text to a WAV file:
+.PP
+.nf
+eloquence \-t "Hello world" \-o hello.wav
+.fi
+.PP
+Use a different voice and speed:
+.PP
+.nf
+eloquence \-t "Fast speech" \-v 3 \-s 150 \-o fast.wav
+.fi
+.PP
+Read from a file:
+.PP
+.nf
+eloquence \-f document.txt \-o document.wav
+.fi
+.PP
+Read from stdin:
+.PP
+.nf
+echo "Hello" | eloquence \-o hello.wav
+.fi
+.SH SEE ALSO
+.BR eloquence\-setup (1),
+.BR speech\-dispatcher (1),
+.BR spd\-say (1),
+.BR qemu\-arm (1)
