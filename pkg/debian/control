@@ -1,0 +1,19 @@
+Source: eloquence
+Section: sound
+Priority: optional
+Maintainer: Stanislaw Przedzinkowski <stasprzecinek@gmail.com>
+Build-Depends: debhelper (>= 13), gcc-arm-linux-gnueabihf, qemu-user,
+ libspeechd-dev, pkg-config, libglib2.0-dev
+
+Package: eloquence
+Architecture: amd64
+Depends: ${shlibs:Depends}, ${misc:Depends}, qemu-user-binfmt
+Recommends: speech-dispatcher, curl, unzip, python3,
+ gcc-arm-linux-gnueabihf, kmod
+Description: Eloquence V6.1 text-to-speech engine
+ Runs the ETI Eloquence V6.1 ARM TTS libraries under QEMU user-mode
+ emulation. Includes a command-line tool, a drop-in libeci.so shim
+ library, and a speech-dispatcher output module.
+ .
+ After installation, run 'sudo eloquence-setup' to download and
+ configure the Eloquence voice data.

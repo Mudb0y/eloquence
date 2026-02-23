@@ -1,0 +1,93 @@
+name: eloquence
+version: 6.1.0
+release: 1
+arch: amd64
+maintainer: Stanislaw Przedzinkowski <stasprzecinek@gmail.com>
+description: |
+  Eloquence V6.1 text-to-speech engine.
+  Runs the ETI Eloquence V6.1 ARM TTS libraries under QEMU user-mode
+  emulation. Includes a command-line tool, a drop-in libeci.so shim
+  library, and a speech-dispatcher output module.
+  After installation, run 'sudo eloquence-setup' to download and
+  configure the Eloquence voice data.
+vendor: ""
+homepage: ""
+license: MIT
+section: sound
+priority: optional
+
+depends:
+  - qemu-user-binfmt
+
+recommends:
+  - speech-dispatcher
+  - curl
+  - unzip
+  - python3
+  - kmod
+
+overrides:
+  deb:
+    recommends:
+      - speech-dispatcher
+      - curl
+      - unzip
+      - python3
+      - gcc-arm-linux-gnueabihf
+      - kmod
+  rpm:
+    recommends:
+      - speech-dispatcher
+      - curl
+      - unzip
+      - python3
+      - kmod
+  archlinux:
+    recommends:
+      - speech-dispatcher
+      - curl
+      - unzip
+      - python
+      - kmod
+
+contents:
+  - src: build/eci-bridge
+    dst: /usr/share/eloquence/eci-bridge
+    file_info:
+      mode: 0755
+
+  - src: build/libeci.so
+    dst: /usr/lib/x86_64-linux-gnu/libeci.so
+    file_info:
+      mode: 0755
+
+  - src: build/eloquence
+    dst: /usr/bin/eloquence
+    file_info:
+      mode: 0755
+
+  - src: scripts/eloquence-setup
+    dst: /usr/bin/eloquence-setup
+    file_info:
+      mode: 0755
+
+  - src: build/sd_eloquence
+    dst: /usr/lib/speech-dispatcher-modules/sd_eloquence
+    file_info:
+      mode: 0755
+
+  - src: spd/eloquence.conf
+    dst: /etc/speech-dispatcher/modules/eloquence.conf
+    type: config
+
+  - src: man/eloquence.1
+    dst: /usr/share/man/man1/eloquence.1
+
+  - src: sysroot/patch-glibc-versions.py
+    dst: /usr/share/eloquence/patch-glibc-versions.py
+
+  - src: arm/sjlj_compat.c
+    dst: /usr/share/eloquence/arm/sjlj_compat.c
+
+  - src: arm/sjlj_compat.map
+    dst: /usr/share/eloquence/arm/sjlj_compat.map

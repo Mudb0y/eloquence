@@ -1,0 +1,301 @@
+#!/bin/bash
+# eloquence-setup — download and configure Eloquence V6.1 ARM sysroot
+#
+# Extracts the ETI Eloquence V6.1 ARM libraries from a LevelStar Icon
+# PDA firmware image, downloads a minimal ARM sysroot from Debian, and
+# applies necessary ELF patches so everything runs under qemu-arm.
+#
+# Must be run as root (installs to /usr/share/eloquence/).
+set -euo pipefail
+
+DATADIR="/usr/share/eloquence"
+SYSROOT="$DATADIR/sysroot/armhf"
+CACHE_DIR="/var/cache/eloquence"
+PATCH_SCRIPT="$DATADIR/patch-glibc-versions.py"
+SJLJ_SRC="$DATADIR/arm/sjlj_compat.c"
+SJLJ_MAP="$DATADIR/arm/sjlj_compat.map"
+
+# LevelStar Icon PDA firmware image (contains Eloquence V6.1 ARM libraries)
+LSI_URL="http://tech.aph.org/2.2.53.lsi"
+LSI_FILE="$CACHE_DIR/2.2.53.lsi"
+
+# Debian bookworm ARM packages (glibc 2.36)
+MIRROR="http://deb.debian.org/debian"
+DIST="bookworm"
+ARCH="armhf"
+
+usage() {
+    cat <<'EOF'
+Usage: eloquence-setup [OPTIONS]
+
+Download and configure the Eloquence V6.1 ARM sysroot.
+
+Options:
+  --uninstall    Remove the sysroot and cached downloads
+  --help         Show this help
+
+This command requires root privileges. It downloads:
+  - LevelStar Icon PDA firmware (~56MB) to extract Eloquence libraries
+  - ARM libc6, libstdc++6, libgcc-s1 from Debian bookworm
+
+Files are installed to /usr/share/eloquence/sysroot/ and cached
+downloads are stored in /var/cache/eloquence/.
+EOF
+}
+
+check_root() {
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "ERROR: This command must be run as root (sudo eloquence-setup)" >&2
+        exit 1
+    fi
+}
+
+check_deps() {
+    local missing=()
+    for cmd in curl unzip python3 qemu-arm; do
+        if ! command -v "$cmd" &>/dev/null; then
+            missing+=("$cmd")
+        fi
+    done
+    if ! command -v arm-linux-gnueabihf-gcc &>/dev/null; then
+        missing+=("arm-linux-gnueabihf-gcc (gcc-arm-linux-gnueabihf)")
+    fi
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "ERROR: Missing required tools:" >&2
+        printf '  - %s\n' "${missing[@]}" >&2
+        echo "" >&2
+        echo "Install with: sudo apt install curl unzip python3 qemu-user gcc-arm-linux-gnueabihf" >&2
+        exit 1
+    fi
+}
+
+# Mount a JFFS2 image using mtdram kernel module and extract files.
+# Uses only standard Debian kernel modules — no pip packages needed.
+extract_jffs2() {
+    local image="$1"
+    local destdir="$2"
+
+    local image_size_kb=$(( ($(stat -c%s "$image") / 1024) + 1024 ))
+    local mtd_mountpoint="$CACHE_DIR/jffs2_mount"
+    mkdir -p "$mtd_mountpoint"
+
+    # Track whether we loaded modules (so we only unload what we loaded)
+    local loaded_mtdram=0 loaded_mtdblock=0 loaded_jffs2=0
+
+    cleanup_jffs2() {
+        umount "$mtd_mountpoint" 2>/dev/null || true
+        [ "$loaded_jffs2" -eq 1 ] && modprobe -r jffs2 2>/dev/null || true
+        [ "$loaded_mtdblock" -eq 1 ] && modprobe -r mtdblock 2>/dev/null || true
+        [ "$loaded_mtdram" -eq 1 ] && modprobe -r mtdram 2>/dev/null || true
+        rmdir "$mtd_mountpoint" 2>/dev/null || true
+    }
+    trap cleanup_jffs2 EXIT
+
+    # Load kernel modules
+    if ! grep -q '^mtdram ' /proc/modules 2>/dev/null; then
+        echo "  Loading mtdram (total_size=${image_size_kb}K)..."
+        modprobe mtdram total_size="$image_size_kb"
+        loaded_mtdram=1
+    fi
+    if ! grep -q '^mtdblock ' /proc/modules 2>/dev/null; then
+        modprobe mtdblock
+        loaded_mtdblock=1
+    fi
+    if ! grep -q '^jffs2 ' /proc/modules 2>/dev/null; then
+        modprobe jffs2
+        loaded_jffs2=1
+    fi
+
+    # Find the MTD device
+    local mtdblock=""
+    if [ -e /dev/mtdblock0 ]; then
+        mtdblock=/dev/mtdblock0
+    else
+        echo "ERROR: /dev/mtdblock0 not found after loading modules" >&2
+        return 1
+    fi
+
+    # Write the JFFS2 image to the MTD block device
+    echo "  Writing JFFS2 image to $mtdblock..."
+    dd if="$image" of="$mtdblock" bs=1M 2>/dev/null
+
+    # Mount and copy
+    echo "  Mounting JFFS2 filesystem..."
+    mount -t jffs2 "$mtdblock" "$mtd_mountpoint"
+
+    echo "  Copying files..."
+    mkdir -p "$destdir"
+    cp -a "$mtd_mountpoint"/. "$destdir"/
+
+    # Cleanup (trap will handle it, but be explicit)
+    umount "$mtd_mountpoint"
+    [ "$loaded_jffs2" -eq 1 ] && modprobe -r jffs2 2>/dev/null || true
+    [ "$loaded_mtdblock" -eq 1 ] && modprobe -r mtdblock 2>/dev/null || true
+    [ "$loaded_mtdram" -eq 1 ] && modprobe -r mtdram 2>/dev/null || true
+    rmdir "$mtd_mountpoint" 2>/dev/null || true
+    trap - EXIT
+}
+
+do_uninstall() {
+    check_root
+    echo "Removing Eloquence sysroot..."
+    rm -rf "$DATADIR/sysroot"
+    echo "Removing cached downloads..."
+    rm -rf "$CACHE_DIR"
+    echo "Done. The eloquence package itself is still installed."
+    echo "To fully remove: sudo apt remove eloquence"
+}
+
+do_setup() {
+    check_root
+    check_deps
+
+    mkdir -p "$CACHE_DIR" "$SYSROOT"
+
+    # --- Step 1: Extract Eloquence libraries from the PDA image ---
+
+    echo "=== Step 1/4: Extracting Eloquence libraries from PDA image ==="
+
+    ROOTFS_DIR="$CACHE_DIR/rootfs"
+
+    if [ -f "$ROOTFS_DIR/usr/lib/libeci.so" ] && \
+       [ -f "$ROOTFS_DIR/usr/lib/enu.so" ] && \
+       [ -f "$ROOTFS_DIR/etc/eci.ini" ]; then
+        echo "  Using cached extraction in $ROOTFS_DIR"
+    else
+        # Download firmware image
+        if [ ! -f "$LSI_FILE" ]; then
+            echo "  Downloading PDA image (~56MB)..."
+            curl -L -o "$LSI_FILE" "$LSI_URL"
+        else
+            echo "  Using cached $LSI_FILE"
+        fi
+
+        # Extract JFFS2 root filesystem from the zip
+        echo "  Extracting root.bin from zip..."
+        unzip -o -d "$CACHE_DIR" "$LSI_FILE" root.bin
+
+        # Mount and extract JFFS2 image using kernel modules
+        echo "  Extracting JFFS2 filesystem via mtdram..."
+        extract_jffs2 "$CACHE_DIR/root.bin" "$ROOTFS_DIR"
+
+        # Clean up the large intermediate file
+        rm -f "$CACHE_DIR/root.bin"
+
+        # Verify extraction
+        for f in usr/lib/libeci.so usr/lib/enu.so etc/eci.ini; do
+            if [ ! -f "$ROOTFS_DIR/$f" ]; then
+                echo "ERROR: $f not found in extracted rootfs" >&2
+                exit 1
+            fi
+        done
+        echo "  Eloquence files extracted successfully"
+    fi
+
+    # --- Step 2: Download armhf packages from Debian ---
+
+    PACKAGES=(
+        "libc6"
+        "libstdc++6"
+        "libgcc-s1"
+    )
+
+    echo ""
+    echo "=== Step 2/4: Downloading armhf packages from Debian $DIST ==="
+
+    PACKAGES_FILE="$CACHE_DIR/Packages-$DIST"
+    if [ ! -f "$PACKAGES_FILE" ]; then
+        echo "  Downloading package index..."
+        curl -sL "$MIRROR/dists/$DIST/main/binary-$ARCH/Packages.xz" -o "$CACHE_DIR/Packages-$DIST.xz"
+        xz -d -k "$CACHE_DIR/Packages-$DIST.xz"
+    fi
+
+    for pkg in "${PACKAGES[@]}"; do
+        echo "  Fetching $pkg..."
+        PKG_URL=$(awk -v pkg="$pkg" '
+            /^Package: / { name=$2 }
+            /^Filename: / { if (name == pkg) { print $2; exit } }
+        ' "$PACKAGES_FILE")
+        if [ -z "$PKG_URL" ]; then
+            echo "    ERROR: could not find $pkg in $DIST/$ARCH" >&2
+            exit 1
+        fi
+        DEB_FILE="$CACHE_DIR/$(basename "$PKG_URL")"
+        if [ ! -f "$DEB_FILE" ]; then
+            curl -sL -o "$DEB_FILE" "$MIRROR/$PKG_URL"
+        fi
+        echo "    Extracting $DEB_FILE..."
+        dpkg-deb -x "$DEB_FILE" "$SYSROOT/"
+    done
+
+    # --- Step 3: Overlay Eloquence libraries and apply patches ---
+
+    echo ""
+    echo "=== Step 3/4: Patching and building compat libraries ==="
+
+    cp -v "$ROOTFS_DIR/usr/lib/libeci.so" "$SYSROOT/usr/lib/"
+    cp -v "$ROOTFS_DIR/usr/lib/enu.so" "$SYSROOT/usr/lib/"
+    mkdir -p "$SYSROOT/etc"
+    cp -v "$ROOTFS_DIR/etc/eci.ini" "$SYSROOT/etc/"
+
+    # Patch ELF OS/ABI: old ARM toolchain sets 0x61 (ARM), modern glibc rejects it
+    echo "  Patching ELF OS/ABI in libeci.so and enu.so..."
+    printf '\x00' | dd of="$SYSROOT/usr/lib/libeci.so" bs=1 seek=7 count=1 conv=notrunc 2>/dev/null
+    printf '\x00' | dd of="$SYSROOT/usr/lib/enu.so" bs=1 seek=7 count=1 conv=notrunc 2>/dev/null
+
+    # Patch GLIBC version requirements
+    echo "  Patching GLIBC version strings and hashes..."
+    python3 "$PATCH_SCRIPT" \
+        "$SYSROOT/usr/lib/libeci.so" \
+        "$SYSROOT/usr/lib/enu.so"
+
+    # Build SJLJ compat shim
+    echo "  Building SJLJ compatibility library..."
+    arm-linux-gnueabihf-gcc --sysroot="$SYSROOT" -shared -fPIC \
+        -o "$SYSROOT/usr/lib/libsjlj_compat.so" \
+        "$SJLJ_SRC" \
+        -Wl,--version-script="$SJLJ_MAP" \
+        -Wl,-soname,libsjlj_compat.so
+
+    # --- Step 4: Verify ---
+
+    echo ""
+    echo "=== Step 4/4: Verifying sysroot ==="
+
+    LDSO=$(find "$SYSROOT" -name "ld-linux-armhf.so*" | head -1)
+    if [ -z "$LDSO" ]; then
+        echo "ERROR: ld-linux-armhf.so not found in sysroot" >&2
+        exit 1
+    fi
+    echo "Dynamic linker: $LDSO"
+
+    echo "Checking libeci.so dependencies..."
+    qemu-arm -L "$SYSROOT" "$LDSO" --list "$SYSROOT/usr/lib/libeci.so" || {
+        echo "WARNING: ldd check failed (may still work)" >&2
+    }
+
+    echo ""
+    echo "=== Eloquence setup complete ==="
+    du -sh "$SYSROOT"
+    echo ""
+    echo "Test with: eloquence -t 'Hello world' -o /tmp/test.wav && aplay /tmp/test.wav"
+}
+
+# --- Main ---
+
+case "${1:-}" in
+    --uninstall)
+        do_uninstall
+        ;;
+    --help|-h)
+        usage
+        ;;
+    "")
+        do_setup
+        ;;
+    *)
+        echo "Unknown option: $1" >&2
+        usage >&2
+        exit 1
+        ;;
+esac

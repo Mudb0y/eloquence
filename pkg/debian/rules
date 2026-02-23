@@ -1,0 +1,15 @@
+#!/usr/bin/make -f
+%:
+	dh $@
+
+override_dh_auto_build:
+	$(MAKE) all sd_eloquence
+
+override_dh_auto_install:
+	$(MAKE) install DESTDIR=debian/eloquence
+
+override_dh_strip:
+	dh_strip --exclude=eci-bridge
+
+override_dh_shlibdeps:
+	dh_shlibdeps --exclude=eci-bridge

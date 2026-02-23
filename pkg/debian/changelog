@@ -1,0 +1,7 @@
+eloquence (6.1.0-1) unstable; urgency=low
+
+  * Initial release.
+  * ARM-to-x86_64 bridge running Eloquence V6.1 under qemu-arm.
+  * Includes CLI tool, libeci.so shim, and speech-dispatcher module.
+
+ -- Stanislaw Przedzinkowski <stasprzecinek@gmail.com>  Sun, 22 Feb 2026 00:00:00 +0000
