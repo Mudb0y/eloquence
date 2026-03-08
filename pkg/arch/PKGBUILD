@@ -8,7 +8,7 @@ license=('MIT')
 url='https://github.com/Mudb0y/eloquence'
 depends=('qemu-user-binfmt')
 makedepends=(
-  'arm-none-eabi-gcc'
+  'arm-linux-gnueabihf-gcc'
   'qemu-user'
   'speech-dispatcher'
   'glib2'
@@ -20,7 +20,7 @@ optdepends=(
   'curl: required by eloquence-setup'
   'unzip: required by eloquence-setup'
   'python: required by eloquence-setup'
-  'arm-none-eabi-gcc: required by eloquence-setup'
+  'arm-linux-gnueabihf-gcc: required by eloquence-setup'
   'kmod: required by eloquence-setup'
 )
 source=("git+https://github.com/Mudb0y/eloquence.git#tag=v${pkgver}")

@@ -14,9 +14,12 @@ Includes a command-line tool, a drop-in `libeci.so` shim library, and a speech-d
 
 ### Debian/Ubuntu (.deb)
 
+Install build dependencies and build the package:
+
 ```
-sudo dpkg -i eloquence_6.1.0-1_amd64.deb
-sudo apt -f install
+sudo apt install debhelper gcc-arm-linux-gnueabihf qemu-user libspeechd-dev pkg-config libglib2.0-dev
+dpkg-buildpackage -us -uc -b
+sudo apt install ../eloquence_6.1.0-1_amd64.deb
 sudo eloquence-setup
 ```
 

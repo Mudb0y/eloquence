@@ -1,4 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: eloquence
+Source: https://github.com/Mudb0y/eloquence
 
 Files: *
 Copyright: 2026 Stanislaw Przedzinkowski <stasprzecinek@gmail.com>

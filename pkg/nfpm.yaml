@@ -11,7 +11,7 @@ description: |
   After installation, run 'sudo eloquence-setup' to download and
   configure the Eloquence voice data.
 vendor: ""
-homepage: ""
+homepage: https://github.com/Mudb0y/eloquence
 license: MIT
 section: sound
 priority: optional
@@ -57,7 +57,7 @@ contents:
       mode: 0755
 
   - src: build/libeci.so
-    dst: /usr/lib/x86_64-linux-gnu/libeci.so
+    dst: /usr/lib/libeci.so
     file_info:
       mode: 0755
 
