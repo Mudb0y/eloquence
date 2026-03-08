@@ -1,4 +1,10 @@
-# Eloquence V6.1 ARM Bridge
+# This is not ready!
+
+I published this project up on request since someone wanted to test it. I vibecoded it in one evening. None of the code is reviewed, so use it at your own risk. The bridge can crash and fuck up your entire SPD with it at random. You have been warned!
+
+Below is the Claude written readme.
+
+## What is this?
 
 This project lets you use the ETI Eloquence V6.1 text-to-speech engine on x86_64 Linux. The Eloquence libraries are 32-bit ARM shared objects from a LevelStar Icon PDA firmware image. This bridge runs them under QEMU user-mode emulation and exposes the full ECI API to native programs through a transparent shim library and Unix socket RPC.
 
